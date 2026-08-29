@@ -154,10 +154,21 @@ esquema de salida fijo, y la prosa derivada del JSON. La salida se sobreescribe.
 
 - **Etapa A (`agente_dia.py`)** — autocontenida: ve UNA fecha y el `giro.yaml`, nada más.
   Por eso se puede correr para cualquier día, en cualquier orden, sin estado previo.
-- **Etapa B (`agente_expedientes.py`, pendiente)** — lee los `salidas/*.json` de la
-  Etapa A, nunca el DOF crudo, y arma expedientes: hilos regulatorios que cruzan
-  varios días (proyecto de NOM → respuesta a comentarios → definitiva), plazos
-  que se acercan, pendientes sin resolver.
+- **Etapa B (`agente_expedientes.py`)** — lee los `salidas/*.json` de la Etapa A y arma
+  expedientes: hilos regulatorios que cruzan varios días (proyecto de NOM → respuesta a
+  comentarios → definitiva), plazos que se acercan, pendientes sin resolver.
+  **No toca la red y no tiene herramientas** (`disallowed_tools=["*"]`): una sola llamada
+  al modelo sobre lo que ya está en disco. Si dos hallazgos son ambiguos no se agrupan y el
+  expediente queda `abierto` — desambiguar es trabajo de la etapa que sí puede buscar.
+- **Comando `antecedentes` (pendiente)** — el único que sale a buscar historia, por materia
+  contra el histórico del DOF (R14), solo para expedientes abiertos sin investigar.
+
+Cada etapa tiene exactamente una fuente y un permiso de red. En cuanto dos se encimen,
+el mismo trabajo se hace dos veces y ninguna es reproducible por su cuenta.
+
+Corolario práctico: ningún campo derivable se le pide al modelo. `primer_evento_observado`,
+`proxima_fecha_limite` e `historia_completa` se calculan en Python después, y los eventos
+cuyo `cod_nota` no exista en la proyección se descartan sin preguntar.
 
 ### R11 — La memoria entre días son archivos, no sesiones del SDK
 
@@ -225,6 +236,6 @@ agéntico largo que redescubre lo mismo cada día.
 | Etapa A, agente del día (`agente_dia.py`) | Funcionando |
 | Render a Markdown (`render.py`) | Funcionando |
 | CLI (`cli.py`) | `dia` funcionando; `expedientes` es stub |
-| Etapa B, expedientes | Pendiente. Diseño cerrado: 4 pasos, 1 llamada al modelo (R15) |
+| Etapa B, expedientes (`agente_expedientes.py`) | Funcionando. 4 pasos, 1 llamada al modelo, cero red |
 | Comando `antecedentes` | Pendiente. Viable y verificado contra el DOF (R14) |
 | Entrega (correo / Slack) y cron | Fuera del alcance del MVP |

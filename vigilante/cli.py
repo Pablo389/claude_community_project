@@ -3,7 +3,8 @@
     python -m vigilante dia                  # el DOF de hoy
     python -m vigilante dia 28-08-2026       # una fecha concreta
     python -m vigilante dia 28-08-2026 --solo-prefiltro   # sin gastar tokens
-    python -m vigilante expedientes          # Etapa B (pendiente)
+    python -m vigilante expedientes          # Etapa B: expedientes desde salidas/
+    python -m vigilante expedientes --solo-proyeccion --hoy 2026-08-29   # sin gastar tokens
 
 Cada corrida golpea la API del DOF en vivo y vuelve a razonar el día completo.
 No hay caché: el Diario cambia durante el día (edición vespertina, extraordinarias)
@@ -21,13 +22,19 @@ from datetime import date
 from pathlib import Path
 
 from .agente_dia import MODELO_POR_DEFECTO, analizar_dia
-from .agente_expedientes import correlacionar
+from .agente_expedientes import (
+    MODELO_POR_DEFECTO as MODELO_EXPEDIENTES_POR_DEFECTO,
+    barrido_vencimientos,
+    construir_proyeccion,
+    correlacionar,
+)
 from .config import RAIZ, cargar_giro
 from .dof_api import notas_del_dia
 from .prefiltro import prefiltrar
 from .render import a_markdown, sin_publicacion
 
 SALIDAS = RAIZ / "salidas"
+ESTADO_DIR = RAIZ / "estado"
 FORMATO_FECHA = re.compile(r"^\d{2}-\d{2}-\d{4}$")
 
 
@@ -87,6 +94,41 @@ async def _comando_dia(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validar_hoy(valor: str | None) -> date:
+    if not valor:
+        return date.today()
+    try:
+        return date.fromisoformat(valor)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Fecha inválida '{valor}'. Formato esperado: YYYY-MM-DD") from exc
+
+
+async def _comando_expedientes(args: argparse.Namespace) -> int:
+    if args.solo_proyeccion:
+        proyeccion = construir_proyeccion()
+        print(f"→ {len(proyeccion)} días con publicación relevante en salidas/")
+        for dia in proyeccion:
+            print(f"\n{dia['fecha']} — {dia['veredicto']}")
+            for h in dia["hallazgos"]:
+                print(f"   H {h['cod_nota']} [{h['categoria']}/{h['severidad']}] {h['titulo'][:70]}"
+                      f" (límite: {h['fecha_limite']})")
+        vencimientos = barrido_vencimientos(proyeccion, args.hoy)
+        print(f"\n→ Barrido de vencimientos contra {args.hoy.isoformat()} ({len(vencimientos)} plazos)")
+        for v in vencimientos:
+            print(f"   [{v['estado']:<8}] {v['fecha_limite']} ({v['dias_restantes']:+d}d) {v['titulo'][:60]}")
+        return 0
+
+    print(f"Vigilante del DOF · Etapa B (expedientes) · referencia {args.hoy.isoformat()}")
+    print("→ Levantando proyección de salidas/ y armando hilos con el modelo...")
+    estado = await correlacionar(modelo=args.modelo, hoy=args.hoy)
+    costo = estado.get("_meta", {}).get("costo_usd")
+    print(f"✓ {len(estado['expedientes'])} expedientes · {len(estado['vencimientos'])} plazos"
+          + (f" · ${costo:.4f}" if costo else ""))
+    print(f"✓ {(ESTADO_DIR / 'expedientes.json').relative_to(RAIZ)}")
+    print(f"✓ {(ESTADO_DIR / 'expedientes.md').relative_to(RAIZ)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vigilante", description="Vigilante del DOF")
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -99,15 +141,19 @@ def main(argv: list[str] | None = None) -> int:
     p_dia.add_argument("--solo-prefiltro", action="store_true",
                        help="Solo muestra los candidatos, sin llamar al modelo")
 
-    sub.add_parser("expedientes", help="Etapa B: continuidad entre días (pendiente)")
+    p_exp = sub.add_parser("expedientes", help="Etapa B: continuidad entre días")
+    p_exp.add_argument("--modelo", default=MODELO_EXPEDIENTES_POR_DEFECTO)
+    p_exp.add_argument("--hoy", type=_validar_hoy, default=_validar_hoy(None),
+                       help="Fecha de referencia para vencimientos, YYYY-MM-DD (hoy por defecto)")
+    p_exp.add_argument("--solo-proyeccion", action="store_true",
+                       help="Solo muestra la proyección y el barrido de vencimientos, sin llamar al modelo")
 
     args = parser.parse_args(argv)
 
     try:
         if args.comando == "dia":
             return asyncio.run(_comando_dia(args))
-        correlacionar()
-        return 0
+        return asyncio.run(_comando_expedientes(args))
     except NotImplementedError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
