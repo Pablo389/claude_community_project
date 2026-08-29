@@ -20,6 +20,10 @@ ETIQUETA_VEREDICTO = {
 ORDEN_SEVERIDAD = {"alta": 0, "media": 1, "baja": 2}
 
 
+def _turnos(n: Any) -> str:
+    return f"{n} turno" if n == 1 else f"{n} turnos"
+
+
 def a_markdown(reporte: dict[str, Any]) -> str:
     meta = reporte.get("_meta", {})
     veredicto = reporte.get("veredicto", "sin_impacto")
@@ -82,7 +86,7 @@ def a_markdown(reporte: dict[str, Any]) -> str:
         "---",
         "",
         f"<sub>Generado por el Vigilante del DOF con {meta.get('modelo', '?')} · "
-        f"{meta.get('turnos', '?')} turnos · "
+        f"{_turnos(meta.get('turnos', '?'))} · "
         f"{'$' + format(costo, '.4f') if isinstance(costo, (int, float)) else 'costo n/d'} · "
         "fuente: API SIDOF (Segob)</sub>",
         "",
@@ -90,27 +94,37 @@ def a_markdown(reporte: dict[str, Any]) -> str:
     return "\n".join(lineas)
 
 
-ETIQUETA_VENCIMIENTO = {
-    "vencido": "Vencido",
-    "proximo": "Próximo (≤ 15 días)",
-    "cerrado": "Cerrado",
-}
-
 
 def a_markdown_expedientes(estado: dict[str, Any]) -> str:
     """Vista humana de `estado/expedientes.json` (Etapa B).
 
-    Igual que en `a_markdown`, la prosa se deriva del JSON: nada de esto
-    se le pide al modelo en texto libre. Vencimientos primero porque es lo
-    más accionable, luego expedientes abiertos por severidad, cerrados al
-    final, y una sección de auditoría del filtro si aplica.
+    Un expediente aparece en exactamente una sección. El vencimiento no es una
+    categoría sino el orden de la primera: cruzar "tiene plazo" con
+    "sigue abierto" da cuatro cuadrantes, pero al usuario solo le importan tres
+    cosas -actúa hoy, vigila, archivado- y listarlas por separado duplicaba
+    expedientes en el documento.
     """
     meta = estado.get("_meta", {})
     expedientes = estado.get("expedientes") or []
-    vencimientos = estado.get("vencimientos") or []
+    dias_por_limite = {v["fecha_limite"]: v["dias_restantes"] for v in estado.get("vencimientos") or []}
+
     abiertos = [e for e in expedientes if e.get("estado") == "abierto"]
     cerrados = [e for e in expedientes if e.get("estado") != "abierto"]
-    abiertos = sorted(abiertos, key=lambda e: ORDEN_SEVERIDAD.get(e.get("severidad"), 9))
+
+    con_plazo = sorted(
+        (e for e in abiertos if e.get("proxima_fecha_limite")),
+        key=lambda e: e["proxima_fecha_limite"],
+    )
+    sin_plazo = sorted(
+        (e for e in abiertos if not e.get("proxima_fecha_limite")),
+        key=lambda e: ORDEN_SEVERIDAD.get(e.get("severidad"), 9),
+    )
+    # Un asunto sin pendiente no debería tener el reloj corriendo: si pasa,
+    # es un error de clasificación del modelo y hay que verlo, no esconderlo.
+    incoherentes = [
+        e for e in cerrados
+        if e.get("proxima_fecha_limite") and dias_por_limite.get(e["proxima_fecha_limite"], -1) >= 0
+    ]
 
     lineas = [
         "# Vigilante del DOF — Expedientes",
@@ -122,53 +136,54 @@ def a_markdown_expedientes(estado: dict[str, Any]) -> str:
         "un expediente puede tener antecedentes anteriores que aquí no aparecen "
         "(eso lo resuelve el comando `antecedentes`, todavía pendiente)._",
         "",
+        "_«Sin pendiente» significa que no se detecta continuación regulatoria, "
+        "no que el pendiente ya se haya atendido internamente._",
+        "",
+        "## Acción con fecha",
+        "",
     ]
+    if not con_plazo:
+        lineas += ["Ningún expediente abierto tiene plazo detectado.", ""]
+    for exp in con_plazo:
+        lineas += _bloque_expediente(exp, dias_por_limite)
 
-    titulo_legible = {
-        ev.get("cod_nota"): e.get("titulo")
-        for e in expedientes
-        for ev in (e.get("eventos") or [])
-        if e.get("titulo")
-    }
+    lineas += ["## En el radar", ""]
+    if not sin_plazo:
+        lineas += ["Ningún expediente abierto sin plazo.", ""]
+    for exp in sin_plazo:
+        lineas += _bloque_expediente(exp, dias_por_limite)
 
-    urgentes = [v for v in vencimientos if v.get("estado") in ("vencido", "proximo")]
-    lineas += ["## Vencimientos próximos y vencidos", ""]
-    if not urgentes:
-        lineas += ["Ningún plazo detectado vence en los próximos 15 días ni está vencido.", ""]
+    lineas += ["## Sin pendiente", ""]
+    if not cerrados:
+        lineas += ["Ninguno.", ""]
     else:
-        for v in urgentes:
-            cod = v.get("cod_nota")
+        for exp in cerrados:
+            eventos = exp.get("eventos") or []
+            cod = eventos[-1].get("cod_nota") if eventos else None
             url = URL_PUBLICA.format(cod_nota=cod) if cod else ""
-            dias = v.get("dias_restantes")
-            etiqueta = ETIQUETA_VENCIMIENTO.get(v.get("estado"), v.get("estado"))
-            detalle = f"vencido hace {-dias} días" if isinstance(dias, int) and dias < 0 else f"en {dias} días"
             lineas.append(
-                f"- **[{etiqueta}]** {v.get('fecha_limite')} ({detalle}) — "
-                f"{titulo_legible.get(cod) or v.get('titulo') or 'Sin título'} · `{v.get('severidad', '?')}` · "
-                f"[codNota {cod}]({url})"
+                f"- {exp.get('titulo', exp.get('id'))} · `{exp.get('categoria', '?')}`"
+                + (f" · [codNota {cod}]({url})" if cod else "")
             )
         lineas.append("")
 
-    lineas += ["## Expedientes abiertos", ""]
-    if not abiertos:
-        lineas += ["No hay expedientes abiertos.", ""]
-    else:
-        for exp in abiertos:
-            lineas += _bloque_expediente(exp)
-
-    lineas += ["## Expedientes cerrados", ""]
-    if not cerrados:
-        lineas += ["No hay expedientes cerrados.", ""]
-    else:
-        for exp in cerrados:
-            lineas += _bloque_expediente(exp)
+    if incoherentes:
+        lineas += [
+            "## Revisar la clasificación",
+            "",
+            "Estos expedientes quedaron como sin pendiente pero tienen un plazo vigente:",
+            "",
+        ]
+        for exp in incoherentes:
+            lineas.append(f"- {exp.get('titulo', exp.get('id'))} — límite {exp['proxima_fecha_limite']}")
+        lineas.append("")
 
     costo = meta.get("costo_usd")
     lineas += [
         "---",
         "",
         f"<sub>Generado por el Vigilante del DOF con {meta.get('modelo', '?')} · "
-        f"{meta.get('turnos', '?')} turnos · "
+        f"{_turnos(meta.get('turnos', '?'))} · "
         f"{'$' + format(costo, '.4f') if isinstance(costo, (int, float)) else 'costo n/d'} · "
         "fuente: salidas/*.json de la Etapa A</sub>",
         "",
@@ -176,25 +191,37 @@ def a_markdown_expedientes(estado: dict[str, Any]) -> str:
     return "\n".join(lineas)
 
 
-def _bloque_expediente(exp: dict[str, Any]) -> list[str]:
-    limite = exp.get("proxima_fecha_limite") or "sin fecha límite"
+def _bloque_expediente(exp: dict[str, Any], dias_por_limite: dict[str, int]) -> list[str]:
+    limite = exp.get("proxima_fecha_limite")
+    if limite:
+        dias = dias_por_limite.get(limite)
+        if isinstance(dias, int):
+            cuando = f"vencido hace {-dias} días" if dias < 0 else f"en {dias} días"
+            plazo = f"**{limite}** ({cuando})"
+        else:
+            plazo = f"**{limite}**"
+    else:
+        plazo = "sin plazo detectado"
+
     lineas = [
         f"### {exp.get('titulo', 'Sin título')}",
         "",
-        f"`{exp.get('severidad', '?')}` · `{exp.get('categoria', '?')}` · materia: *{exp.get('materia', '?')}* · "
-        f"próximo límite: {limite}",
+        f"{plazo} · `{exp.get('severidad', '?')}` · `{exp.get('categoria', '?')}` · "
+        f"materia: *{exp.get('materia', '?')}*",
         "",
         f"**Qué sigue.** {exp.get('que_sigue', '—')}",
         "",
-        f"**Por qué este estado.** {exp.get('por_que_este_estado', '—')}",
+        f"**Por qué sigue abierto.** {exp.get('por_que_este_estado', '—')}",
         "",
         "**Eventos:**",
     ]
     for ev in exp.get("eventos") or []:
-        lineas.append(f"- {ev.get('fecha')} · codNota {ev.get('cod_nota')} · {ev.get('que_paso', '—')}")
+        cod = ev.get("cod_nota")
+        url = URL_PUBLICA.format(cod_nota=cod) if cod else ""
+        lineas.append(f"- {ev.get('fecha')} · [codNota {cod}]({url}) · {ev.get('que_paso', '—')}")
     lineas += [
         "",
-        f"_Primer evento observado por el Vigilante: {exp.get('primer_evento_observado', '?')} "
+        f"_Primer evento observado: {exp.get('primer_evento_observado', '?')} "
         "(no necesariamente el inicio real del asunto)._",
         "",
     ]

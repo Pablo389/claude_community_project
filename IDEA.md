@@ -211,6 +211,28 @@ la frase. El agente se autocorrige sin umbrales escritos en el prompt.
 Límite: la búsqueda es solo sobre títulos. Un hilo cuyos títulos no comparten vocabulario
 no se enlaza.
 
+### R15b — Un expediente, una sección
+
+El vencimiento es un HECHO (una resta de fechas en Python) y `abierto`/`cerrado` es un
+JUICIO del modelo sobre si el asunto va a volver a moverse. Cruzarlos da cuatro cuadrantes,
+pero al usuario solo le importan tres cosas, y el documento se organiza por esas:
+
+- **Acción con fecha** — abiertos con plazo, ordenados por fecha, vencidos primero.
+- **En el radar** — abiertos sin plazo: van a salir más publicaciones, sin prisa hoy.
+- **Sin pendiente** — cerrados, una línea cada uno.
+
+El vencimiento no es una sección sino el ORDEN de la primera. Listarlo aparte hacía que el
+mismo expediente apareciera dos veces en el documento. El barrido sigue en el JSON porque
+es determinista y lo consumirá el entregable compuesto de la mañana.
+
+Un `cerrado` con plazo vigente es una contradicción: se marca en «Revisar la clasificación»
+en lugar de esconderse, porque es el error de clasificación más probable del modelo.
+
+Y una precisión que las etiquetas no deben traicionar: **`cerrado` significa "no se detecta
+continuación regulatoria", no "ya se atendió"**. No hay circuito de retroalimentación; el
+Vigilante no sabe si el usuario presentó la complementaria. Un estado que ponga el usuario
+es trabajo futuro.
+
 ### R15 — Recomputar lo barato, cachear lo caro
 
 La Etapa B se recomputa completa en cada corrida (~600 tokens por día de historia: un año
