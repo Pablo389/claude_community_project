@@ -1,0 +1,74 @@
+# Perfil del negocio vigilado. Este archivo ES el filtro:
+# cambiarlo cambia por completo qué considera relevante el Vigilante.
+
+nombre: "Importadora y distribuidora de dispositivos médicos"
+descripcion: >
+  Empresa mexicana que importa dispositivos médicos (equipo de diagnóstico,
+  insumos desechables y consumibles) desde EE.UU. y Asia, los almacena en un CEDIS
+  en Guadalajara y los distribuye a hospitales privados y distribuidores regionales.
+  Sujeta a registro sanitario COFEPRIS, NOMs de etiquetado y buenas prácticas,
+  padrón de importadores y reglas generales de comercio exterior.
+
+# Dependencias cuyas publicaciones se revisan siempre.
+# Deben coincidir con el campo `codOrgaDos` que devuelve la API del DOF.
+dependencias_vigiladas:
+  - SECRETARIA DE SALUD
+  - SECRETARIA DE ECONOMIA
+  - SECRETARIA DE HACIENDA Y CREDITO PUBLICO
+  - SECRETARIA DEL TRABAJO Y PREVISION SOCIAL
+  - SERVICIO DE ADMINISTRACION TRIBUTARIA
+  - COMISION FEDERAL PARA LA PROTECCION CONTRA RIESGOS SANITARIOS
+  - INSTITUTO MEXICANO DEL SEGURO SOCIAL
+  - BANCO DE MEXICO
+
+# Cualquier nota cuyo título contenga uno de estos términos entra a revisión,
+# venga de la dependencia que venga.
+palabras_clave:
+  - norma oficial mexicana
+  - nom-
+  - proyecto de norma
+  - dispositivo medico
+  - insumos para la salud
+  - registro sanitario
+  - cofepris
+  - etiquetado
+  - buenas practicas
+  - farmacopea
+  - arancel
+  - fraccion arancelaria
+  - padron de importadores
+  - reglas generales de comercio exterior
+  - resolucion miscelanea fiscal
+  - iva
+  - isr
+  - comprobante fiscal
+  - cfdi
+  - carta porte
+  - impuesto
+  - tipo de cambio
+  - salario minimo
+  - unidad de medida y actualizacion
+
+# Términos que descartan una nota aunque haya hecho match arriba
+# (recorta el ruido más común del DOF sin sacrificar recall real).
+palabras_excluidas:
+  - convocatoria a concurso
+  - acuerdo por el que se da a conocer el nombramiento
+  - lista de valores minimos para desechos
+  - aviso notarial
+  - edicto
+  - balance general de liquidacion
+  - extracto de la solicitud de concesion
+
+# Obligaciones que ya nos aplican. Le da al agente el "antes" para
+# poder decir si una publicación modifica algo vigente.
+obligaciones_vigentes:
+  - "NOM-137-SSA1-2008 - Etiquetado de dispositivos médicos"
+  - "NOM-241-SSA1-2021 - Buenas prácticas de fabricación de dispositivos médicos"
+  - "Registro sanitario COFEPRIS por familia de producto"
+  - "Padrón de importadores y padrón sectorial"
+  - "CFDI 4.0 con complemento Carta Porte en traslados del CEDIS"
+  - "Régimen general de ISR e IVA como persona moral"
+
+# Cuántos candidatos como máximo se le entregan al agente por corrida.
+max_candidatos: 25

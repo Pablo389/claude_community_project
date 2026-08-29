@@ -1,0 +1,3 @@
+claude-agent-sdk>=0.2.140
+httpx>=0.27
+PyYAML>=6.0
