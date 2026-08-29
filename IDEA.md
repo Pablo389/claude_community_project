@@ -179,6 +179,39 @@ cuando leer 6 u 8 empiece a degradar el resumen final, el paso siguiente es un s
 `analista` que lea cada nota y devuelva 200 palabras estructuradas, para que el texto
 legal completo nunca entre al contexto principal. Antes de eso, es complejidad sin beneficio.
 
+### R14 — La historia profunda se reconstruye del DOF, no de nuestros archivos
+
+Un hilo regulatorio suele tener antecedentes anteriores a que el Vigilante existiera.
+Eso no se resuelve acumulando días propios, se resuelve buscando en el histórico del DOF
+con `GET /buscarNotas/titulo/{frase}/{pagina}/{limite}/fecha/desc`.
+
+**Se busca por materia, nunca por número de NOM.** Dos razones, ambas verificadas:
+
+- El endpoint hace match de substring y el guion divide en OR: `NOM-253` devuelve 144,835
+  resultados y `NOM` 147,788, porque pega dentro de «nombre» y «denominadas».
+  Las frases de 2-4 palabras sí discriminan: `sangre humana` devuelve 17.
+- **El número cambia a lo largo del hilo.** El mismo asunto fue norma técnica (1986),
+  NOM de emergencia SSA 01/92, NOM-003-SSA2-1993, NOM-253-SSA1-2012 y proyecto de
+  NOM-253-SSA1-2024. Buscar por número pierde los antecedentes; la materia es estable.
+
+Guardarraíl: la herramienta rechaza la consulta si `totalRegistros > 200` y pide acotar
+la frase. El agente se autocorrige sin umbrales escritos en el prompt.
+
+Límite: la búsqueda es solo sobre títulos. Un hilo cuyos títulos no comparten vocabulario
+no se enlaza.
+
+### R15 — Recomputar lo barato, cachear lo caro
+
+La Etapa B se recomputa completa en cada corrida (~600 tokens por día de historia: un año
+cabe por menos de un dólar), así que no hay fold incremental, ni `dias_procesados`, ni
+doble conteo. Es una función pura de `salidas/`.
+
+La investigación de antecedentes es lo contrario: cuesta decenas de llamadas de herramienta
+por expediente y su resultado no cambia (la fe de erratas de 1986 seguirá siendo de 1986).
+Por eso vive en un comando aparte, `antecedentes`, que persiste en `estado/antecedentes.json`
+y el recompute consume como entrada. Meterla dentro del recompute lo convertiría en un loop
+agéntico largo que redescubre lo mismo cada día.
+
 ---
 
 ## 3. Estado actual
@@ -192,5 +225,6 @@ legal completo nunca entre al contexto principal. Antes de eso, es complejidad s
 | Etapa A, agente del día (`agente_dia.py`) | Funcionando |
 | Render a Markdown (`render.py`) | Funcionando |
 | CLI (`cli.py`) | `dia` funcionando; `expedientes` es stub |
-| Etapa B, expedientes | Pendiente, contrato definido |
+| Etapa B, expedientes | Pendiente. Diseño cerrado: 4 pasos, 1 llamada al modelo (R15) |
+| Comando `antecedentes` | Pendiente. Viable y verificado contra el DOF (R14) |
 | Entrega (correo / Slack) y cron | Fuera del alcance del MVP |
