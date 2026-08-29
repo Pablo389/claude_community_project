@@ -8,13 +8,26 @@ Todo lo que descarta sigue disponible para el agente vía la herramienta
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from .config import Giro, normalizar
 from .dof_api import Nota
 
 PESO_DEPENDENCIA = 2
 PESO_PALABRA_CLAVE = 3
+
+
+@lru_cache(maxsize=512)
+def _patron(clave: str) -> re.Pattern[str]:
+    """Match por palabra completa, no por substring.
+
+    Sin esto, la clave `iva` pega en «privativa» y `isr` en cualquier acrónimo:
+    los falsos positivos más caros del prefiltro son los de tres letras.
+    """
+    return re.compile(rf"(?<!\w){re.escape(clave)}(?!\w)" if clave[-1].isalnum()
+                      else rf"(?<!\w){re.escape(clave)}")
 
 
 @dataclass
@@ -51,7 +64,7 @@ def prefiltrar(notas: list[Nota], giro: Giro) -> tuple[list[Candidato], list[Not
             puntaje += PESO_DEPENDENCIA
             motivos.append(f"dependencia vigilada: {nota.dependencia}")
 
-        golpes = [k for k in claves if k in titulo]
+        golpes = [k for k in claves if _patron(k).search(titulo)]
         if golpes:
             puntaje += PESO_PALABRA_CLAVE * len(golpes)
             motivos.append("palabras clave: " + ", ".join(golpes))
