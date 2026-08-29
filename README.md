@@ -18,6 +18,22 @@ pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+### Sobre la autenticación
+
+El SDK no llama a la API directamente: lanza el binario `claude` como subproceso y ese
+resuelve las credenciales. Si ya tienes sesión de Claude Code en la máquina, el comando
+corre **sin** `ANTHROPIC_API_KEY` usando ese login (Keychain en macOS) y se factura a tu
+cuenta. Cómodo para desarrollo local, inservible para lo demás:
+
+- En un servidor, contenedor o CI no hay login interactivo: hace falta la API key.
+- Los [términos del Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) prohíben
+  que un producto de terceros use login o rate limits de claude.ai. Para operar esto como
+  servicio, API key obligatoria.
+- Los límites de una suscripción son de uso interactivo; varias corridas seguidas los topan.
+
+`ANTHROPIC_API_KEY` tiene precedencia sobre el login, así que pasar de uno a otro no
+requiere tocar código.
+
 ## Uso
 
 ```bash
