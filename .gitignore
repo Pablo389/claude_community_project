@@ -7,3 +7,4 @@ salidas/*.json
 estado/*.json
 estado/*.md
 !**/.gitkeep
+estado/antecedentes/

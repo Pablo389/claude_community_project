@@ -196,20 +196,49 @@ Un hilo regulatorio suele tener antecedentes anteriores a que el Vigilante exist
 Eso no se resuelve acumulando días propios, se resuelve buscando en el histórico del DOF
 con `GET /buscarNotas/titulo/{frase}/{pagina}/{limite}/fecha/desc`.
 
-**Se busca por materia, nunca por número de NOM.** Dos razones, ambas verificadas:
+**Nunca por número de NOM.** El endpoint hace match de substring y el guion divide en OR:
+`NOM-253` devuelve 144,835 resultados y `NOM` 147,788, porque pega dentro de «nombre» y
+«denominadas». Y el número cambia a lo largo del hilo: el mismo asunto fue norma técnica
+(1986), NOM de emergencia SSA 01/92, NOM-003-SSA2-1993, NOM-253-SSA1-2012 y proyecto de
+NOM-253-SSA1-2024. Buscar por número pierde los antecedentes.
 
-- El endpoint hace match de substring y el guion divide en OR: `NOM-253` devuelve 144,835
-  resultados y `NOM` 147,788, porque pega dentro de «nombre» y «denominadas».
-  Las frases de 2-4 palabras sí discriminan: `sangre humana` devuelve 17.
-- **El número cambia a lo largo del hilo.** El mismo asunto fue norma técnica (1986),
-  NOM de emergencia SSA 01/92, NOM-003-SSA2-1993, NOM-253-SSA1-2012 y proyecto de
-  NOM-253-SSA1-2024. Buscar por número pierde los antecedentes; la materia es estable.
+**Corrección de agosto de 2026: tampoco por la `materia` de la Etapa B.** Esta regla decía
+que esa `materia` alimentaría la búsqueda. Con datos reales falla en los dos casos probados:
+`tránsito carreteras federales` devuelve **0** (el título dice «Tránsito en Carreteras y
+Puentes de Jurisdicción Federal») e `infraestructura de la calidad` devuelve **41**, la
+mayoría convenios de turismo. `materia` es prosa del modelo: sirve como etiqueta legible y
+no como llave de búsqueda. Lo que sí funciona es la frase literal (R16): `Programa Nacional
+de Infraestructura de la Calidad` devuelve 12, cero ruido, la serie completa 2021-2026.
 
-Guardarraíl: la herramienta rechaza la consulta si `totalRegistros > 200` y pide acotar
-la frase. El agente se autocorrige sin umbrales escritos en el prompt.
+Guardarraíl: la herramienta avisa cuando `totalRegistros > 500` y el agente descarta esos
+resultados por su cuenta. Verificado: con 8,219 filas devueltas por una frase genérica, no
+citó ninguna.
 
 Límite: la búsqueda es solo sobre títulos. Un hilo cuyos títulos no comparten vocabulario
 no se enlaza.
+
+### R16 — Toda arista entre eventos se prueba con una búsqueda reproducible
+
+El DOF no numera sus casos: no hay folio que amarre una publicación con su antecedente.
+La hipótesis obvia -que las notas citan a sus antecedentes por fecha- se probó y es falsa:
+en los 12 hallazgos de agosto de 2026 hay 19 citas de fecha y **ninguna** es de continuidad;
+todas apuntan a reglamentos interiores, o sea fundamento legal. El caso decisivo es el
+decreto que reforma el Reglamento de Tránsito: 43 mil caracteres y una sola mención al
+Diario, en su propio transitorio, hablando de sí mismo.
+
+El DOF referencia por **nombre**, en el título. Por eso:
+
+- La frase de búsqueda debe aparecer **literal** en el expediente (título o cuerpo). Lo
+  impone la herramienta, no el prompt: una paráfrasis nunca llega al endpoint.
+- Un `cod_nota` que ninguna búsqueda haya devuelto no puede citarse. Lo impone la
+  validación en Python, después de que el modelo responde.
+- `fecha` y `titulo` de cada antecedente salen del registro de búsquedas, no de lo que el
+  modelo transcribió.
+- Dos niveles: `confirmado` cuando es inequívocamente el mismo asunto, `probable` cuando
+  es plausible. Nunca se mezclan en el render.
+
+El modelo decide **qué pertenece al hilo**; no decide la evidencia. Las consultas quedan
+escritas en el dossier para que cualquiera repita la investigación.
 
 ### R15b — Un expediente, una sección
 
@@ -257,7 +286,7 @@ agéntico largo que redescubre lo mismo cada día.
 | Herramientas MCP (`herramientas.py`) | Funcionando |
 | Etapa A, agente del día (`agente_dia.py`) | Funcionando |
 | Render a Markdown (`render.py`) | Funcionando |
-| CLI (`cli.py`) | `dia` funcionando; `expedientes` es stub |
+| CLI (`cli.py`) | `dia`, `expedientes` y `antecedentes` funcionando |
 | Etapa B, expedientes (`agente_expedientes.py`) | Funcionando. 4 pasos, 1 llamada al modelo, cero red |
-| Comando `antecedentes` | Pendiente. Viable y verificado contra el DOF (R14) |
+| Etapa C, antecedentes (`agente_antecedentes.py`) | Funcionando. 1 llamada al modelo, 1 herramienta, 1 dossier por expediente (R16) |
 | Entrega (correo / Slack) y cron | Fuera del alcance del MVP |

@@ -8,11 +8,13 @@ Endpoints verificados:
     GET /dof/sidof/notas/{DD-MM-YYYY}   -> notas del día (título, dependencia, codNota)
     GET /dof/sidof/notas/nota/{codNota} -> nota completa, HTML en `cadenaContenido`
     GET /dof/sidof/diarios/porFecha/{DD-MM-YYYY} -> ediciones publicadas ese día
+    GET /dof/sidof/buscarNotas/titulo/{frase}/{pagina}/{limite}/fecha/desc -> histórico
 """
 
 from __future__ import annotations
 
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
@@ -61,6 +63,36 @@ class DiarioDelDia:
     @property
     def hubo_publicacion(self) -> bool:
         return bool(self.notas)
+
+
+@dataclass
+class Coincidencia:
+    """Una fila del histórico. La búsqueda no devuelve edición ni sección."""
+
+    cod_nota: int
+    titulo: str
+    fecha: str  # DD-MM-YYYY
+    dependencia: str
+
+    @property
+    def url(self) -> str:
+        return URL_PUBLICA.format(cod_nota=self.cod_nota)
+
+    def to_dict(self) -> dict:
+        return {
+            "cod_nota": self.cod_nota,
+            "titulo": self.titulo,
+            "fecha": self.fecha,
+            "dependencia": self.dependencia,
+            "url": self.url,
+        }
+
+
+@dataclass
+class ResultadoBusqueda:
+    frase: str
+    total: int  # cuántas hay en todo el DOF, no cuántas devolvimos
+    coincidencias: list[Coincidencia] = field(default_factory=list)
 
 
 class _Destildador(HTMLParser):
@@ -144,6 +176,39 @@ def notas_del_dia(fecha: str) -> DiarioDelDia:
 
     notas.sort(key=lambda n: n.cod_nota)
     return DiarioDelDia(fecha=fecha, notas=notas)
+
+
+def buscar_por_titulo(frase: str, limite: int = 20, pagina: int = 1) -> ResultadoBusqueda:
+    """Histórico del DOF por frase contenida en el título, más reciente primero.
+
+    El endpoint hace match de substring y el guion parte la frase en OR, así que
+    esto solo discrimina con frases de materia de 2-4 palabras (R14): `NOM-253`
+    devuelve 144,835 filas y `sangre humana` devuelve 17. Quien llame se encarga
+    de elegir la frase; aquí no se adivina.
+    """
+    frase = (frase or "").strip()
+    if not frase:
+        raise ValueError("La frase de búsqueda no puede ir vacía")
+
+    ruta = f"/buscarNotas/titulo/{urllib.parse.quote(frase, safe='')}/{pagina}/{limite}/fecha/desc"
+    with httpx.Client(timeout=TIMEOUT, follow_redirects=True) as cliente:
+        datos = _get(cliente, ruta)
+
+    coincidencias = [
+        Coincidencia(
+            cod_nota=fila["codNota"],
+            titulo=(fila.get("titulo") or "").strip(),
+            fecha=(fila.get("fecha") or "").strip(),
+            dependencia=(fila.get("codOrgaDos") or "SIN DEPENDENCIA").strip(),
+        )
+        for fila in datos.get("Notas") or []
+        if fila.get("codNota") and (fila.get("titulo") or "").strip()
+    ]
+    return ResultadoBusqueda(
+        frase=frase,
+        total=int(datos.get("totalRegistros") or len(coincidencias)),
+        coincidencias=coincidencias,
+    )
 
 
 def texto_nota(cod_nota: int) -> str:

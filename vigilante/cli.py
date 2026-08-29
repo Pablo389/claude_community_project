@@ -5,6 +5,9 @@
     python -m vigilante dia 28-08-2026 --solo-prefiltro   # sin gastar tokens
     python -m vigilante expedientes          # Etapa B: expedientes desde salidas/
     python -m vigilante expedientes --solo-proyeccion --hoy 2026-08-29   # sin gastar tokens
+    python -m vigilante antecedentes                       # lista los expedientes
+    python -m vigilante antecedentes suplemento-pnic-2026  # Etapa C: su historia previa
+    python -m vigilante antecedentes suplemento-pnic-2026 --buscar "Ley de Infraestructura de la Calidad"
 
 Cada corrida golpea la API del DOF en vivo y vuelve a razonar el día completo.
 No hay caché: el Diario cambia durante el día (edición vespertina, extraordinarias)
@@ -21,6 +24,13 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from .agente_antecedentes import (
+    MODELO_POR_DEFECTO as MODELO_ANTECEDENTES_POR_DEFECTO,
+    ancla,
+    buscar_expediente,
+    cargar_expedientes,
+    investigar,
+)
 from .agente_dia import MODELO_POR_DEFECTO, analizar_dia
 from .agente_expedientes import (
     MODELO_POR_DEFECTO as MODELO_EXPEDIENTES_POR_DEFECTO,
@@ -29,12 +39,14 @@ from .agente_expedientes import (
     correlacionar,
 )
 from .config import RAIZ, cargar_giro
-from .dof_api import notas_del_dia
+from .dof_api import buscar_por_titulo, notas_del_dia
 from .prefiltro import prefiltrar
 from .render import a_markdown, sin_publicacion
 
 SALIDAS = RAIZ / "salidas"
 ESTADO_DIR = RAIZ / "estado"
+ANTECEDENTES_DIR = ESTADO_DIR / "antecedentes"
+LIMITE_BUSQUEDA = 20
 FORMATO_FECHA = re.compile(r"^\d{2}-\d{2}-\d{4}$")
 
 
@@ -129,6 +141,46 @@ async def _comando_expedientes(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _comando_antecedentes(args: argparse.Namespace) -> int:
+    expedientes = cargar_expedientes()
+
+    if not args.expediente:
+        print(f"→ {len(expedientes)} expedientes en estado/expedientes.json")
+        for exp in expedientes:
+            clave = ancla(exp)
+            investigado = (ANTECEDENTES_DIR / f"{clave}.json").exists()
+            print(f"   [{'investigado' if investigado else 'sin historia':<12}] "
+                  f"{clave} · {exp.get('id')}")
+        print("\nElige uno: python -m vigilante antecedentes <slug o cod_nota>")
+        return 0
+
+    expediente = buscar_expediente(expedientes, args.expediente)
+    print(f"Vigilante del DOF · Etapa C · {expediente.get('id')} (ancla {ancla(expediente)})")
+
+    if args.buscar:
+        # Vista previa determinista: la misma búsqueda que hará el agente, gratis.
+        # La frase va a mano a propósito: la `materia` de la Etapa B es prosa del
+        # modelo y no encuentra nada ('tránsito carreteras federales' -> 0 filas).
+        resultado = buscar_por_titulo(args.buscar, LIMITE_BUSQUEDA)
+        print(f"→ '{resultado.frase}' → {resultado.total} en el DOF, "
+              f"{len(resultado.coincidencias)} revisadas")
+        for c in resultado.coincidencias:
+            print(f"   {c.fecha}  cod {c.cod_nota}  {c.titulo[:88]}")
+        if not resultado.coincidencias:
+            print("   (0 resultados: la frase no aparece literal en ningún título del DOF)")
+        return 0
+
+    dossier = await investigar(expediente, giro=cargar_giro(args.giro), modelo=args.modelo)
+    antecedentes = dossier.get("antecedentes") or []
+    confirmados = sum(1 for a in antecedentes if a.get("nivel") == "confirmado")
+    costo = dossier.get("_meta", {}).get("costo_usd")
+    print(f"✓ {len(antecedentes)} antecedentes ({confirmados} confirmados) · "
+          f"{len(dossier.get('consultas') or [])} búsquedas"
+          + (f" · ${costo:.4f}" if costo else ""))
+    print(f"✓ {(ANTECEDENTES_DIR / f'{ancla(expediente)}.md').relative_to(RAIZ)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vigilante", description="Vigilante del DOF")
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -148,11 +200,21 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument("--solo-proyeccion", action="store_true",
                        help="Solo muestra la proyección y el barrido de vencimientos, sin llamar al modelo")
 
+    p_ant = sub.add_parser("antecedentes", help="Etapa C: historia previa de un expediente")
+    p_ant.add_argument("expediente", nargs="?", default=None,
+                       help="Slug del expediente o su cod_nota ancla. Sin argumento, los lista")
+    p_ant.add_argument("--giro", default=None, help="Ruta a un giro.yaml alternativo")
+    p_ant.add_argument("--modelo", default=MODELO_ANTECEDENTES_POR_DEFECTO)
+    p_ant.add_argument("--buscar", default=None, metavar="FRASE",
+                       help="Solo corre esta búsqueda contra el histórico, sin llamar al modelo")
+
     args = parser.parse_args(argv)
 
     try:
         if args.comando == "dia":
             return asyncio.run(_comando_dia(args))
+        if args.comando == "antecedentes":
+            return asyncio.run(_comando_antecedentes(args))
         return asyncio.run(_comando_expedientes(args))
     except NotImplementedError as exc:
         print(f"✗ {exc}", file=sys.stderr)

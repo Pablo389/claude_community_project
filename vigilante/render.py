@@ -19,6 +19,16 @@ ETIQUETA_VEREDICTO = {
 
 ORDEN_SEVERIDAD = {"alta": 0, "media": 1, "baja": 2}
 
+ETIQUETA_PAPEL = {
+    "raiz": "origen",
+    "proyecto": "proyecto",
+    "respuesta_comentarios": "respuesta a comentarios",
+    "definitiva": "norma definitiva",
+    "reforma": "reforma",
+    "criterio": "criterio",
+    "serie": "entrega anual",
+}
+
 
 def _turnos(n: Any) -> str:
     return f"{n} turno" if n == 1 else f"{n} turnos"
@@ -239,3 +249,97 @@ def sin_publicacion(fecha: str, giro_nombre: str) -> str:
             "",
         ]
     )
+
+
+def a_markdown_antecedentes(dossier: dict[str, Any]) -> str:
+    """Vista humana de un dossier de la Etapa C.
+
+    Las consultas van al final a propósito: son la prueba de R16, y sin ellas
+    la historia sería otra afirmación más que nadie puede verificar.
+    """
+    meta = dossier.get("_meta", {})
+    antecedentes = dossier.get("antecedentes") or []
+
+    lineas = [
+        f"# Antecedentes — {dossier.get('titulo', 'Expediente')}",
+        "",
+        f"**Expediente:** `{dossier.get('expediente_id')}` · ancla `codNota {dossier.get('ancla')}`  ",
+        f"**Investigado el:** {meta.get('investigado_el', '?')}  ",
+        "",
+    ]
+
+    if narrativa := dossier.get("narrativa"):
+        lineas += [narrativa, ""]
+
+    if not antecedentes:
+        lineas += [
+            "## Sin historia previa",
+            "",
+            "El histórico del DOF no arroja publicaciones anteriores del mismo asunto. "
+            "Hay publicaciones que de verdad nacen solas.",
+            "",
+        ]
+    else:
+        confirmados = sum(1 for a in antecedentes if a.get("nivel") == "confirmado")
+        lineas += [
+            "## Línea de tiempo",
+            "",
+            f"{len(antecedentes)} publicaciones anteriores: {confirmados} confirmadas, "
+            f"{len(antecedentes) - confirmados} probables.",
+            "",
+        ]
+        for ant in antecedentes:
+            papel = ETIQUETA_PAPEL.get(ant.get("papel"), ant.get("papel") or "otro")
+            marca = "" if ant.get("nivel") == "confirmado" else " · _probable_"
+            lineas += [
+                f"### {ant.get('fecha')} — {papel}{marca}",
+                "",
+                f"[{ant.get('titulo')}]({ant.get('url')}) · `codNota {ant['cod_nota']}`",
+                "",
+                f"{ant.get('que_paso', '—')}",
+                "",
+                f"**Por qué pertenece.** {ant.get('por_que_pertenece', '—')}",
+                "",
+            ]
+            if cita := ant.get("cita"):
+                lineas += [f"> {cita}", ""]
+
+    if vigente := dossier.get("vigente"):
+        lineas += [
+            "## Qué rige hoy",
+            "",
+            f"[{vigente.get('titulo')}]({vigente.get('url')}) · {vigente.get('fecha')} · "
+            f"`codNota {vigente['cod_nota']}`",
+            "",
+            f"{vigente.get('por_que', '')}".strip(),
+            "",
+        ]
+
+    lineas += ["## Cómo se comprobó", "", "Búsquedas contra el histórico del DOF:", ""]
+    for consulta in dossier.get("consultas") or []:
+        lineas.append(
+            f"- `{consulta.get('frase')}` → {consulta.get('total')} en el DOF, "
+            f"{consulta.get('devueltas')} revisadas"
+        )
+    if not dossier.get("consultas"):
+        lineas.append("- (ninguna)")
+    if rechazadas := dossier.get("frases_rechazadas"):
+        lineas += [
+            "",
+            "Frases rechazadas por no aparecer literales en el expediente:",
+            "",
+            *(f"- `{r.get('frase')}` — {r.get('motivo')}" for r in rechazadas),
+        ]
+
+    costo = meta.get("costo_usd")
+    lineas += [
+        "",
+        "---",
+        "",
+        f"<sub>Vigilante del DOF · Etapa C · {meta.get('modelo', '?')} · "
+        f"{_turnos(meta.get('turnos', '?'))} · "
+        f"{'$' + format(costo, '.4f') if isinstance(costo, (int, float)) else 'costo n/d'} · "
+        f"{meta.get('notas_vistas', 0)} publicaciones devueltas por el histórico</sub>",
+        "",
+    ]
+    return "\n".join(lineas)
