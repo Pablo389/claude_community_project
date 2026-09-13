@@ -107,6 +107,40 @@ def test_cada_corrida_usa_su_propio_set_de_sin_texto(monkeypatch):
     assert sets_capturados[0] is not sets_capturados[1]
 
 
+class TestHallazgoEsCorreccion:
+    """EP-02: `es_correccion` en el hallazgo se calcula en Python sobre el
+    título, no se le pide al modelo en el esquema (R10)."""
+
+    def _reporte_con_hallazgo(self, titulo: str, monkeypatch) -> dict:
+        def fake_servidor_dof(sin_texto):
+            return {"type": "sdk", "name": "dof", "instance": None}
+
+        async def fake_ejecutar_agente(prompt, opciones, verboso):
+            texto_final = (
+                '```json\n{"veredicto": "impacto_bajo", "hallazgos": '
+                f'[{{"cod_nota": 1, "titulo": "{titulo}"}}]'
+                '}\n```'
+            )
+            return texto_final, _resultado()
+
+        monkeypatch.setattr(agente_dia, "servidor_dof", fake_servidor_dof)
+        monkeypatch.setattr(agente_dia, "ejecutar_agente", fake_ejecutar_agente)
+
+        diario = DiarioDelDia(fecha="28-08-2026", notas=[])
+        giro = Giro(nombre="X", descripcion="")
+        return asyncio.run(
+            agente_dia.analizar_dia(diario, giro, [], modelo="test-model", verboso=False)
+        )
+
+    def test_hallazgo_fe_de_erratas_queda_marcado(self, monkeypatch):
+        reporte = self._reporte_con_hallazgo("Fe de erratas a la NOM-137-SSA1-2008", monkeypatch)
+        assert reporte["hallazgos"][0]["es_correccion"] is True
+
+    def test_hallazgo_normal_no_queda_marcado(self, monkeypatch):
+        reporte = self._reporte_con_hallazgo("Registro sanitario de dispositivo medico", monkeypatch)
+        assert reporte["hallazgos"][0]["es_correccion"] is False
+
+
 class TestPromptMarcaFeDeErratas:
     """EP-02: la marca `[FE DE ERRATAS]` en el prompt es puramente determinista."""
 

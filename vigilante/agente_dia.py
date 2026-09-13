@@ -16,7 +16,7 @@ from .agente import ejecutar_agente, extraer_json
 from .config import Giro
 from .dof_api import DiarioDelDia
 from .herramientas import TOOL_TEXTO_NOTA, TOOL_TITULOS_DEL_DIA, servidor_dof
-from .prefiltro import Candidato
+from .prefiltro import Candidato, es_correccion
 
 MODELO_POR_DEFECTO = "claude-opus-5"
 MAX_TURNOS = 40
@@ -149,6 +149,10 @@ async def analizar_dia(
     reporte = extraer_json(texto_final)
     reporte["fecha"] = diario.fecha
     reporte["giro"] = giro.nombre
+    # EP-02: no se le pide al modelo en el esquema (R10: ningún campo derivable
+    # se le pide al modelo) — se calcula sobre el título que ya transcribió.
+    for h in reporte.get("hallazgos") or []:
+        h["es_correccion"] = es_correccion(h.get("titulo") or "")
     reporte["_meta"] = {
         "modelo": modelo,
         "notas_publicadas": len(diario.notas),

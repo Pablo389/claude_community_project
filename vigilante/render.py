@@ -65,10 +65,11 @@ def a_markdown(reporte: dict[str, Any]) -> str:
             cod = h.get("cod_nota")
             url = URL_PUBLICA.format(cod_nota=cod) if cod else ""
             limite = h.get("fecha_limite") or "sin fecha límite explícita"
+            etiqueta_correccion = " · `corrección`" if h.get("es_correccion") else ""
             lineas += [
                 f"### {i}. {h.get('titulo', 'Sin título')}",
                 "",
-                f"`{h.get('severidad', '?')}` · `{h.get('categoria', '?')}` · "
+                f"`{h.get('severidad', '?')}` · `{h.get('categoria', '?')}`{etiqueta_correccion} · "
                 f"{h.get('dependencia', '?')} · [codNota {cod}]({url})",
                 "",
                 f"**Qué cambia.** {h.get('que_cambia', '—')}",

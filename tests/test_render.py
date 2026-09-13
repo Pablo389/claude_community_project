@@ -137,6 +137,24 @@ class TestAMarkdownDia:
         md = a_markdown(reporte)
         assert "## Fuente incompleta" not in md
 
+    def test_hallazgo_correccion_lleva_etiqueta(self):
+        reporte = {
+            "fecha": "x", "giro": "X", "veredicto": "impacto_bajo",
+            "hallazgos": [{"titulo": "Fe de erratas a la NOM-137", "severidad": "baja",
+                           "cod_nota": 1, "es_correccion": True}],
+        }
+        md = a_markdown(reporte)
+        assert "`corrección`" in md
+
+    def test_hallazgo_normal_no_lleva_etiqueta(self):
+        reporte = {
+            "fecha": "x", "giro": "X", "veredicto": "impacto_bajo",
+            "hallazgos": [{"titulo": "Registro sanitario", "severidad": "baja",
+                           "cod_nota": 1, "es_correccion": False}],
+        }
+        md = a_markdown(reporte)
+        assert "`corrección`" not in md
+
 
 class TestAMarkdownAntecedentes:
     def _dossier(self, **kw) -> dict:
