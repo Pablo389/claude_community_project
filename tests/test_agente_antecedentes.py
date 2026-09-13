@@ -13,6 +13,7 @@ from datetime import date
 import pytest
 
 from vigilante import agente_antecedentes as aa
+from vigilante import dof_api
 from vigilante.dof_api import Coincidencia
 from vigilante.herramientas import Registro
 
@@ -76,6 +77,54 @@ class TestCargarExpedientes:
             json.dumps({"expedientes": [_expediente(id="a")]}), encoding="utf-8"
         )
         assert aa.cargar_expedientes()[0]["id"] == "a"
+
+
+class TestTextosFuente:
+    """EP-01: `_textos_fuente` cae a solo-título y registra `fuente_incompleta`
+    cuando `texto_nota` devuelve `disponible=False` o falla."""
+
+    def test_disponible_incluye_texto_completo(self, monkeypatch):
+        monkeypatch.setattr(
+            aa.dof_api, "texto_nota",
+            lambda cod: dof_api.TextoNota(texto="cuerpo real", disponible=True,
+                                           existe_doc=True, existe_imagen=True, existe_pdf=True),
+        )
+        textos, incompletos = aa._textos_fuente(_expediente(), {100: "Titulo 100", 50: "Titulo 50"},
+                                                 verboso=False)
+        assert incompletos == set()
+        assert "cuerpo real" in textos[100]
+        assert "cuerpo real" in textos[50]
+
+    def test_no_disponible_cae_a_titulo_y_se_registra_incompleto(self, monkeypatch):
+        # Caso real: codNota 4432291 (1917), texto vacío.
+        monkeypatch.setattr(
+            aa.dof_api, "texto_nota",
+            lambda cod: dof_api.TextoNota(texto="", disponible=False,
+                                           existe_doc=False, existe_imagen=False, existe_pdf=False),
+        )
+        textos, incompletos = aa._textos_fuente(_expediente(), {100: "Titulo 100", 50: "Titulo 50"},
+                                                 verboso=False)
+        assert incompletos == {100, 50}
+        assert textos[100] == "Titulo 100"
+
+    def test_excepcion_de_red_tambien_cuenta_como_incompleto(self, monkeypatch):
+        def falla(cod):
+            raise RuntimeError("boom")
+        monkeypatch.setattr(aa.dof_api, "texto_nota", falla)
+        textos, incompletos = aa._textos_fuente(_expediente(), {100: "Titulo 100", 50: "Titulo 50"},
+                                                 verboso=False)
+        assert incompletos == {100, 50}
+        assert textos[100] == "Titulo 100"
+
+    def test_sin_titulo_ni_texto_el_cod_nota_queda_fuera_de_textos(self, monkeypatch):
+        monkeypatch.setattr(
+            aa.dof_api, "texto_nota",
+            lambda cod: dof_api.TextoNota(texto="", disponible=False,
+                                           existe_doc=False, existe_imagen=False, existe_pdf=False),
+        )
+        textos, incompletos = aa._textos_fuente(_expediente(), {}, verboso=False)
+        assert incompletos == {100, 50}
+        assert textos == {}
 
 
 class TestFecha:

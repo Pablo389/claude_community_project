@@ -96,25 +96,41 @@ def titulos_dof() -> dict[int, str]:
 
 def _textos_fuente(
     expediente: dict[str, Any], titulos: dict[int, str], verboso: bool = True
-) -> dict[int, str]:
+) -> tuple[dict[int, str], set[int]]:
     """Título oficial + texto de cada publicación propia del expediente.
 
     Es la fuente contra la que se valida R16: solo frases que aparezcan aquí
     pueden convertirse en búsqueda. El título va incluido porque a veces el
     cuerpo no repite el nombre del ordenamiento.
+
+    También devuelve el conjunto de `cod_nota` cuyo texto no estaba disponible
+    (EP-01) — por falla de red o porque la publicación no tiene texto
+    extraíble (ver `codNota 4432291`, 1917). En ambos casos la fuente se queda
+    solo con el título, pero ahora queda registrado para que el dossier final
+    lo diga en vez de razonar en silencio sobre una fuente incompleta.
     """
     textos: dict[int, str] = {}
+    incompletos: set[int] = set()
     for evento in expediente.get("eventos") or []:
         cod = int(evento["cod_nota"])
         titulo = titulos.get(cod, "")
         try:
-            textos[cod] = f"{titulo}\n{dof_api.texto_nota(cod)}"
+            resultado = dof_api.texto_nota(cod)
         except Exception as exc:
             if verboso:
                 print(f"   ! no pude leer la nota {cod}: {exc}")
+            incompletos.add(cod)
             if titulo:
                 textos[cod] = titulo
-    return textos
+            continue
+
+        if resultado.disponible:
+            textos[cod] = f"{titulo}\n{resultado.texto}"
+        else:
+            incompletos.add(cod)
+            if titulo:
+                textos[cod] = titulo
+    return textos, incompletos
 
 
 INSTRUCCIONES = """\
@@ -320,7 +336,7 @@ async def investigar(
     oficiales = titulos_dof()
     if verboso:
         print(f"→ Leyendo las {len(expediente.get('eventos') or [])} publicaciones del expediente...")
-    textos = _textos_fuente(expediente, oficiales, verboso)
+    textos, fuente_incompleta = _textos_fuente(expediente, oficiales, verboso)
     if not textos:
         raise RuntimeError("No pude leer ninguna publicación del expediente; sin fuente no hay búsqueda")
 
@@ -351,6 +367,9 @@ async def investigar(
         # La evidencia de R16: con esto cualquiera repite la investigación.
         "consultas": registro.consultas,
         "frases_rechazadas": registro.rechazadas,
+        # EP-01: cod_nota propios del expediente sin texto verificable, dato
+        # crudo de Python, no interpretación del modelo.
+        "fuente_incompleta": sorted(fuente_incompleta),
         "_meta": {
             "modelo": modelo,
             "investigado_el": date.today().isoformat(),
