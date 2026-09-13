@@ -43,24 +43,25 @@ def _error(mensaje: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"ERROR: {mensaje}"}], "is_error": True}
 
 
-@tool(
-    "texto_nota",
-    "Devuelve el texto oficial completo de una publicación del DOF a partir de su codNota. "
-    "Úsala solo para las notas que de verdad parecen relevantes: el texto es largo.",
-    {"cod_nota": int},
-)
-async def texto_nota(args: dict[str, Any]) -> dict[str, Any]:
-    cod_nota = args["cod_nota"]
-    try:
-        cuerpo = dof_api.texto_nota(int(cod_nota))
-    except LookupError as exc:
-        return _error(str(exc))
-    except Exception as exc:  # red caída, 500 del DOF, etc.
-        return _error(f"No pude leer la nota {cod_nota}: {exc}")
+def _mensaje_sin_texto(cod_nota: int, resultado: dof_api.TextoNota) -> str:
+    """Mensaje para `disponible=False` (EP-01).
 
-    if len(cuerpo) > LIMITE_TEXTO:
-        cuerpo = cuerpo[:LIMITE_TEXTO] + "\n\n[...texto truncado...]"
-    return _texto(f"codNota {cod_nota} — {dof_api.URL_PUBLICA.format(cod_nota=cod_nota)}\n\n{cuerpo}")
+    Nunca promete un PDF o una imagen que los flags no confirman: el caso real
+    `codNota 4432291` tiene `existe_doc`, `existe_imagen` y `existe_pdf` los
+    tres en falso, así que el mensaje tiene que poder decir "no hay nada" tan
+    fácil como "existe como PDF".
+    """
+    url = dof_api.URL_PUBLICA.format(cod_nota=cod_nota)
+    if resultado.existe_pdf or resultado.existe_imagen:
+        formato = "PDF" if resultado.existe_pdf else "imagen"
+        return (
+            f"codNota {cod_nota} no tiene texto extraíble por esta vía, pero existe "
+            f"como {formato}. Documento oficial: {url}"
+        )
+    return (
+        f"codNota {cod_nota} no tiene ninguna versión digital disponible en el DOF "
+        f"(ni HTML, ni imagen, ni PDF), solo el título indexado. Referencia: {url}"
+    )
 
 
 @tool(
@@ -188,9 +189,14 @@ def servidor_historico(registro: Registro):
                 "publicaciones que el DOF ya te devolvió: búscala primero."
             )
         try:
-            cuerpo = dof_api.texto_nota(cod_nota)
+            resultado = dof_api.texto_nota(cod_nota)
         except Exception as exc:
             return _error(f"No pude leer la nota {cod_nota}: {exc}")
+
+        if not resultado.disponible:
+            return _texto(_mensaje_sin_texto(cod_nota, resultado))
+
+        cuerpo = resultado.texto
         if len(cuerpo) > LIMITE_TEXTO:
             cuerpo = cuerpo[:LIMITE_TEXTO] + "\n\n[...texto truncado...]"
         return _texto(f"codNota {cod_nota} — {dof_api.URL_PUBLICA.format(cod_nota=cod_nota)}\n\n{cuerpo}")
@@ -202,8 +208,39 @@ def servidor_historico(registro: Registro):
     )
 
 
-def servidor_dof():
-    """Servidor MCP in-process con las herramientas del DOF."""
+def servidor_dof(sin_texto: set[int]):
+    """Servidor MCP in-process con las herramientas del DOF (Etapa A).
+
+    `sin_texto` es un contenedor mutable — mismo patrón que `Registro` en
+    `servidor_historico`: el tool `texto_nota` agrega ahí los `cod_nota` que
+    resultaron sin texto disponible, para que `agente_dia` los reporte en
+    `_meta.fuente_incompleta` sin depender de que el modelo lo declare (EP-01).
+    """
+
+    @tool(
+        "texto_nota",
+        "Devuelve el texto oficial completo de una publicación del DOF a partir de su codNota. "
+        "Úsala solo para las notas que de verdad parecen relevantes: el texto es largo.",
+        {"cod_nota": int},
+    )
+    async def texto_nota(args: dict[str, Any]) -> dict[str, Any]:
+        cod_nota = int(args["cod_nota"])
+        try:
+            resultado = dof_api.texto_nota(cod_nota)
+        except LookupError as exc:
+            return _error(str(exc))
+        except Exception as exc:  # red caída, 500 del DOF, etc.
+            return _error(f"No pude leer la nota {cod_nota}: {exc}")
+
+        if not resultado.disponible:
+            sin_texto.add(cod_nota)
+            return _texto(_mensaje_sin_texto(cod_nota, resultado))
+
+        cuerpo = resultado.texto
+        if len(cuerpo) > LIMITE_TEXTO:
+            cuerpo = cuerpo[:LIMITE_TEXTO] + "\n\n[...texto truncado...]"
+        return _texto(f"codNota {cod_nota} — {dof_api.URL_PUBLICA.format(cod_nota=cod_nota)}\n\n{cuerpo}")
+
     return create_sdk_mcp_server(
         name=NOMBRE_SERVIDOR,
         version="0.1.0",

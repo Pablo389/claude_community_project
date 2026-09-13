@@ -148,12 +148,56 @@ class TestBuscarPorTitulo:
 
 
 class TestTextoNota:
+    """EP-01: `texto_nota` devuelve `TextoNota`, con `disponible` como diagnóstico
+    de si hubo texto extraíble — no un `str` a secas."""
+
     def test_nota_inexistente_lanza_lookup_error(self, monkeypatch):
         _mockear_cliente(monkeypatch, {"messageCode": 200, "Nota": None})
         with pytest.raises(LookupError):
             dof_api.texto_nota(999)
 
     def test_convierte_cadena_contenido_de_html_a_texto(self, monkeypatch):
-        payload = {"messageCode": 200, "Nota": {"cadenaContenido": "<p>Texto oficial</p>"}}
+        payload = {
+            "messageCode": 200,
+            "Nota": {"cadenaContenido": "<p>Texto oficial</p>",
+                     "existeDoc": "S", "existeImagen": "S", "existePdf": "S"},
+        }
         _mockear_cliente(monkeypatch, payload)
-        assert dof_api.texto_nota(1) == "Texto oficial"
+        resultado = dof_api.texto_nota(1)
+        assert resultado.texto == "Texto oficial"
+        assert resultado.disponible is True
+        assert (resultado.existe_doc, resultado.existe_imagen, resultado.existe_pdf) == (True, True, True)
+
+    def test_texto_vacio_marca_no_disponible(self, monkeypatch):
+        # Caso real: codNota 4432291 (DECRETO Ley Electoral, 06-02-1917) — cadenaContenido
+        # vacío y los tres flags existe* en "N".
+        payload = {
+            "messageCode": 200,
+            "Nota": {"cadenaContenido": "", "existeDoc": "N", "existeImagen": "N", "existePdf": "N"},
+        }
+        _mockear_cliente(monkeypatch, payload)
+        resultado = dof_api.texto_nota(4432291)
+        assert resultado.texto == ""
+        assert resultado.disponible is False
+        assert (resultado.existe_doc, resultado.existe_imagen, resultado.existe_pdf) == (False, False, False)
+
+    def test_texto_corto_pero_real_sigue_disponible(self, monkeypatch):
+        # No hay umbral (EP-01): un decreto de una sola frase no se marca como no disponible.
+        payload = {
+            "messageCode": 200,
+            "Nota": {"cadenaContenido": "<p>Artículo único. Se deroga.</p>",
+                     "existeDoc": "S", "existeImagen": "S", "existePdf": "S"},
+        }
+        _mockear_cliente(monkeypatch, payload)
+        assert dof_api.texto_nota(1).disponible is True
+
+    def test_existe_flags_se_leen_individualmente(self, monkeypatch):
+        payload = {
+            "messageCode": 200,
+            "Nota": {"cadenaContenido": "", "existeDoc": "N", "existeImagen": "S", "existePdf": "N"},
+        }
+        _mockear_cliente(monkeypatch, payload)
+        resultado = dof_api.texto_nota(1)
+        assert resultado.existe_doc is False
+        assert resultado.existe_imagen is True
+        assert resultado.existe_pdf is False

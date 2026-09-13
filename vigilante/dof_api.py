@@ -211,12 +211,45 @@ def buscar_por_titulo(frase: str, limite: int = 20, pagina: int = 1) -> Resultad
     )
 
 
-def texto_nota(cod_nota: int) -> str:
-    """Texto completo de una nota, ya convertido de HTML a texto plano."""
+@dataclass
+class TextoNota:
+    """Resultado de leer una nota completa, con diagnóstico de disponibilidad.
+
+    `disponible=False` no es un error: la publicación existe en el DOF (tiene
+    `codNota`, título y fecha) pero no tiene texto extraíble por esta vía. Caso
+    real confirmado: `codNota 4432291` (DECRETO Ley Electoral, 06-02-1917) trae
+    `cadenaContenido` vacío y los tres flags `existe*` en `"N"` — ni HTML, ni
+    imagen, ni PDF. Sin este flag, quien llama no puede distinguir eso de "esta
+    nota de verdad no dice nada".
+    """
+
+    texto: str
+    disponible: bool
+    existe_doc: bool
+    existe_imagen: bool
+    existe_pdf: bool
+
+
+def texto_nota(cod_nota: int) -> TextoNota:
+    """Texto completo de una nota, ya convertido de HTML a texto plano.
+
+    `disponible` es `False` únicamente cuando el texto extraído queda
+    exactamente vacío — no hay umbral de "insuficiente": el DOF publica
+    decretos legítimos de una sola frase, y un umbral por encima de cero
+    marcaría eso como "no disponible" sin motivo.
+    """
     with httpx.Client(timeout=TIMEOUT, follow_redirects=True) as cliente:
         datos = _get(cliente, f"/notas/nota/{cod_nota}")
 
     nota = datos.get("Nota")
     if not nota:
         raise LookupError(f"La nota {cod_nota} no existe en el DOF")
-    return html_a_texto(nota.get("cadenaContenido") or "")
+
+    texto = html_a_texto(nota.get("cadenaContenido") or "")
+    return TextoNota(
+        texto=texto,
+        disponible=bool(texto.strip()),
+        existe_doc=nota.get("existeDoc") == "S",
+        existe_imagen=nota.get("existeImagen") == "S",
+        existe_pdf=nota.get("existePdf") == "S",
+    )
