@@ -7,7 +7,7 @@ que decide cómo se ve el documento final.
 
 from __future__ import annotations
 
-from vigilante.render import a_markdown, a_markdown_expedientes, sin_publicacion
+from vigilante.render import a_markdown, a_markdown_antecedentes, a_markdown_expedientes, sin_publicacion
 
 
 def _expediente(id_, estado, severidad="alta", proxima_fecha_limite=None, **kw) -> dict:
@@ -119,6 +119,49 @@ class TestAMarkdownDia:
     def test_veredicto_desconocido_no_truena(self):
         md = a_markdown({"fecha": "x", "giro": "X", "veredicto": "algo_nuevo", "hallazgos": []})
         assert "algo_nuevo" in md
+
+    def test_fuente_incompleta_aparece_cuando_no_esta_vacia(self):
+        reporte = {
+            "fecha": "x", "giro": "X", "veredicto": "sin_impacto", "hallazgos": [],
+            "_meta": {"fuente_incompleta": [4432291]},
+        }
+        md = a_markdown(reporte)
+        assert "## Fuente incompleta" in md
+        assert "4432291" in md
+
+    def test_fuente_incompleta_no_aparece_si_esta_vacia(self):
+        reporte = {
+            "fecha": "x", "giro": "X", "veredicto": "sin_impacto", "hallazgos": [],
+            "_meta": {"fuente_incompleta": []},
+        }
+        md = a_markdown(reporte)
+        assert "## Fuente incompleta" not in md
+
+
+class TestAMarkdownAntecedentes:
+    def _dossier(self, **kw) -> dict:
+        base = {
+            "titulo": "Un expediente", "expediente_id": "exp-1", "ancla": 100,
+            "narrativa": None, "antecedentes": [], "vigente": None,
+            "consultas": [], "frases_rechazadas": [], "fuente_incompleta": [],
+            "_meta": {},
+        }
+        base.update(kw)
+        return base
+
+    def test_fuente_incompleta_aparece_cuando_no_esta_vacia(self):
+        # Caso real: codNota 4432291 (DECRETO Ley Electoral, 1917), sin texto.
+        md = a_markdown_antecedentes(self._dossier(fuente_incompleta=[4432291]))
+        assert "4432291" in md
+        assert "sin texto verificable" in md
+
+    def test_fuente_incompleta_no_aparece_si_esta_vacia(self):
+        md = a_markdown_antecedentes(self._dossier(fuente_incompleta=[]))
+        assert "sin texto verificable" not in md
+
+    def test_sin_historia_no_truena(self):
+        md = a_markdown_antecedentes(self._dossier())
+        assert "## Sin historia previa" in md
 
 
 def test_sin_publicacion_es_estable():

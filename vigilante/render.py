@@ -91,6 +91,19 @@ def a_markdown(reporte: dict[str, Any]) -> str:
             lineas.append(f"- [{cod}]({url}) — {d.get('por_que_no', '—')}")
         lineas.append("")
 
+    fuente_incompleta = meta.get("fuente_incompleta") or []
+    if fuente_incompleta:
+        lineas += [
+            "## Fuente incompleta",
+            "",
+            "Estas publicaciones no tienen texto extraíble por esta vía (EP-01): "
+            "revísalas directamente en el DOF si son importantes.",
+            "",
+        ]
+        for cod in fuente_incompleta:
+            lineas.append(f"- [codNota {cod}]({URL_PUBLICA.format(cod_nota=cod)})")
+        lineas.append("")
+
     costo = meta.get("costo_usd")
     lineas += [
         "---",
@@ -329,6 +342,15 @@ def a_markdown_antecedentes(dossier: dict[str, Any]) -> str:
             "Frases rechazadas por no aparecer literales en el expediente:",
             "",
             *(f"- `{r.get('frase')}` — {r.get('motivo')}" for r in rechazadas),
+        ]
+    if fuente_incompleta := dossier.get("fuente_incompleta"):
+        lineas += [
+            "",
+            "Publicaciones propias del expediente sin texto verificable por esta vía "
+            "(EP-01) — solo se pudieron usar por su título, revísalas directamente en "
+            "el DOF si son importantes:",
+            "",
+            *(f"- [codNota {cod}]({URL_PUBLICA.format(cod_nota=cod)})" for cod in fuente_incompleta),
         ]
 
     costo = meta.get("costo_usd")
