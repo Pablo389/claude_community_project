@@ -110,11 +110,11 @@ def _prompt(fecha: str, giro: Giro, candidatos: list[Candidato], total_notas: in
     return "\n".join(lineas)
 
 
-def _opciones(modelo: str) -> ClaudeAgentOptions:
+def _opciones(modelo: str, sin_texto: set[int]) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=modelo,
         system_prompt=INSTRUCCIONES,
-        mcp_servers={"dof": servidor_dof()},
+        mcp_servers={"dof": servidor_dof(sin_texto)},
         allowed_tools=[TOOL_TEXTO_NOTA, TOOL_TITULOS_DEL_DIA, "WebSearch"],
         # Fuera del contexto del agente: no tiene nada que escribir ni ejecutar.
         disallowed_tools=["Bash", "Write", "Edit", "NotebookEdit", "Read", "Glob", "Grep", "Task"],
@@ -134,7 +134,11 @@ async def analizar_dia(
 ) -> dict[str, Any]:
     """Corre el agente sobre un día y devuelve el reporte estructurado."""
     prompt = _prompt(diario.fecha, giro, candidatos, len(diario.notas))
-    texto_final, resultado = await ejecutar_agente(prompt, _opciones(modelo), verboso)
+    # EP-01: `servidor_dof` llena este set con los cod_nota que resultaron sin
+    # texto disponible durante el run, para reportar cobertura incompleta sin
+    # depender de que el modelo lo declare.
+    sin_texto: set[int] = set()
+    texto_final, resultado = await ejecutar_agente(prompt, _opciones(modelo, sin_texto), verboso)
 
     reporte = extraer_json(texto_final)
     reporte["fecha"] = diario.fecha
@@ -147,5 +151,6 @@ async def analizar_dia(
         "costo_usd": resultado.total_cost_usd,
         "duracion_ms": resultado.duration_ms,
         "session_id": resultado.session_id,
+        "fuente_incompleta": sorted(sin_texto),
     }
     return reporte
