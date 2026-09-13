@@ -29,6 +29,7 @@ def _hallazgo(cod_nota=1, **kw) -> dict:
         "severidad": "alta",
         "fecha_limite": None,
         "que_cambia": "Cambia algo",
+        "es_correccion": False,
     }
     base.update(kw)
     return base
@@ -60,6 +61,15 @@ class TestConstruirProyeccion:
     def test_carpeta_vacia_da_lista_vacia(self, tmp_path, monkeypatch):
         monkeypatch.setattr(ae, "SALIDAS", tmp_path)
         assert ae.construir_proyeccion() == []
+
+    def test_es_correccion_sobrevive_a_la_proyeccion(self, tmp_path, monkeypatch):
+        # EP-02: el flag lo calculó Etapa A; esta etapa solo lo arrastra.
+        monkeypatch.setattr(ae, "SALIDAS", tmp_path)
+        _escribir_salida(tmp_path, "2026-08-28", "impacto_bajo", [
+            _hallazgo(1, es_correccion=True),
+        ])
+        dias = ae.construir_proyeccion()
+        assert dias[0]["hallazgos"][0]["es_correccion"] is True
 
 
 class TestBarridoVencimientos:
@@ -160,3 +170,24 @@ class TestValidarYEnriquecer:
         ]
         ids = [e["id"] for e in ae._validar_y_enriquecer(crudos, proyeccion)]
         assert ids == ["c-abierto-alta", "a-abierto-baja", "b-cerrado-alta"]
+
+
+class TestPromptMarcaFeDeErratas:
+    """EP-02: la marca `[FE DE ERRATAS]` en el prompt de Etapa B es determinista."""
+
+    def test_hallazgo_correccion_lleva_la_marca(self):
+        proyeccion = [{"fecha": "28-08-2026", "veredicto": "impacto_bajo",
+                       "hallazgos": [_hallazgo(1, es_correccion=True)]}]
+        prompt = ae._prompt(proyeccion)
+        assert "[FE DE ERRATAS]" in prompt
+
+    def test_hallazgo_normal_no_lleva_la_marca(self):
+        proyeccion = [{"fecha": "28-08-2026", "veredicto": "impacto_bajo",
+                       "hallazgos": [_hallazgo(1, es_correccion=False)]}]
+        prompt = ae._prompt(proyeccion)
+        assert "[FE DE ERRATAS]" not in prompt
+
+    def test_dia_sin_hallazgos_no_truena(self):
+        proyeccion = [{"fecha": "28-08-2026", "veredicto": "sin_impacto", "hallazgos": []}]
+        prompt = ae._prompt(proyeccion)
+        assert "Sin hallazgos ese día." in prompt

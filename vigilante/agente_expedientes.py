@@ -46,6 +46,7 @@ CAMPOS_HALLAZGO = (
     "severidad",
     "fecha_limite",
     "que_cambia",
+    "es_correccion",  # EP-02: calculado por Etapa A sobre el título, no por el modelo
 )
 
 FORMATO_EVENTO = "%d-%m-%Y"
@@ -144,6 +145,11 @@ aquí, porque inventa una historia que nadie va a auditar.
 Un hallazgo que no forma hilo con nada más es un expediente de un solo evento.
 Eso es normal y correcto: no fuerces agrupaciones para que se vea más interesante.
 
+Un hallazgo marcado `[FE DE ERRATAS]` es una corrección oficial a una publicación
+anterior, no un asunto nuevo. Antes de darle un expediente propio, busca en la
+proyección qué evento anterior corrige (el DOF lo nombra en su propio título:
+"... publicada el <fecha>") y agrégala como un evento más de ese mismo hilo.
+
 Para cada expediente decide si está `abierto` (falta una resolución, corre un
 plazo, hay una respuesta pendiente) o `cerrado` (la publicación fue definitiva y
 no hay pendiente detectable en lo que viste).
@@ -194,8 +200,9 @@ def _prompt(proyeccion: list[dict[str, Any]]) -> str:
             lineas += ["Sin hallazgos ese día.", ""]
             continue
         for h in dia["hallazgos"]:
+            marca = " [FE DE ERRATAS]" if h.get("es_correccion") else ""
             lineas.append(
-                f"- cod_nota {h['cod_nota']} | {h.get('categoria')} | {h.get('severidad')} | "
+                f"- cod_nota {h['cod_nota']} | {h.get('categoria')} | {h.get('severidad')}{marca} | "
                 f"límite: {h.get('fecha_limite') or 'sin fecha'} | {h.get('dependencia')}\n"
                 f"  título: {h.get('titulo')}\n"
                 f"  qué cambia: {h.get('que_cambia')}"
