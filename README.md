@@ -56,6 +56,20 @@ escribe `estado/expedientes.json` y `.md`. `antecedentes` escribe un dossier por
 
 Para vigilar otro negocio, edita `giro.yaml` — o pásale otro con `--giro cliente-b.yaml`.
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Cubren las partes deterministas del pipeline (prefiltro, cliente del DOF, config,
+proyección/barrido/validación de expedientes, `_validar` de antecedentes, `Registro`
+y el render) con datos de mentira: nunca golpean el DOF ni llaman al modelo. No hay
+pruebas para las llamadas al agente (`agente_dia.py`, el paso 3 de expedientes, el
+paso de investigación de antecedentes) — eso es exactamente lo que cada etapa deja
+en manos del modelo.
+
 ## Estructura
 
 ```
