@@ -7,7 +7,7 @@ Estas pruebas fijan el comportamiento que el commit 47274ab ya corrigió una vez
 from __future__ import annotations
 
 from tests.conftest import hacer_nota
-from vigilante.prefiltro import prefiltrar
+from vigilante.prefiltro import es_correccion, prefiltrar
 
 
 class TestMatchPorDependencia:
@@ -98,3 +98,52 @@ class TestPuntajeYRecorte:
         candidatos, descartadas = prefiltrar([], giro)
         assert candidatos == []
         assert descartadas == []
+
+
+class TestEsCorreccion:
+    """EP-02: detección determinista de fe de erratas por título."""
+
+    def test_titulo_normal_no_es_correccion(self):
+        assert es_correccion("Norma Oficial Mexicana NOM-137-SSA1-2008") is False
+
+    def test_fe_de_erratas_minusculas(self):
+        assert es_correccion("Fe de erratas a la Norma Oficial Mexicana NOM-037-SICT2-2026") is True
+
+    def test_fe_de_erratas_mayusculas_caso_real_1986(self):
+        # Caso real citado en R14: "FE de erratas a la norma técnica para la
+        # disposición de sangre humana...".
+        assert es_correccion("FE de erratas a la norma técnica para la disposición de sangre humana") is True
+
+    def test_fe_de_erratas_con_acentos_variables(self):
+        assert es_correccion("fe DE ERRATAS a la Ley de Infraestructura de la Calidad") is True
+
+    def test_mencion_de_fe_de_erratas_a_mitad_de_titulo_no_cuenta(self):
+        # El DOF lo pone siempre al inicio; si aparece a mitad no es una fe de
+        # erratas real, es otra cosa citándola.
+        assert es_correccion("Acuerdo que menciona la fe de erratas anterior") is False
+
+    def test_titulo_vacio_no_truena(self):
+        assert es_correccion("") is False
+
+
+class TestPrefiltradoMarcaCorreccion:
+    def test_candidato_fe_de_erratas_queda_marcado(self, giro):
+        nota = hacer_nota(
+            1, "Fe de erratas a la Norma Oficial Mexicana NOM-137-SSA1-2008",
+            dependencia="SECRETARIA DE SALUD",
+        )
+        candidatos, _ = prefiltrar([nota], giro)
+        assert candidatos[0].es_correccion is True
+
+    def test_candidato_normal_no_queda_marcado(self, giro):
+        nota = hacer_nota(1, "Registro sanitario de dispositivo medico", dependencia="SECRETARIA DE SALUD")
+        candidatos, _ = prefiltrar([nota], giro)
+        assert candidatos[0].es_correccion is False
+
+    def test_to_dict_incluye_es_correccion(self, giro):
+        nota = hacer_nota(
+            1, "Fe de erratas a la Norma Oficial Mexicana NOM-137-SSA1-2008",
+            dependencia="SECRETARIA DE SALUD",
+        )
+        candidatos, _ = prefiltrar([nota], giro)
+        assert candidatos[0].to_dict()["es_correccion"] is True

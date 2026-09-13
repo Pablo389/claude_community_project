@@ -19,6 +19,17 @@ PESO_DEPENDENCIA = 2
 PESO_PALABRA_CLAVE = 3
 
 
+def es_correccion(titulo: str) -> bool:
+    """Detecta una fe de erratas por su título (EP-02).
+
+    El DOF las nombra de forma consistente ("Fe de erratas a ...", "FE de
+    erratas ..."), nunca por número de norma — confirmado contra 6,902 casos
+    históricos y el ejemplo de 1986 que ya documenta R14. Ancla al inicio del
+    título porque ahí es donde el DOF siempre lo pone.
+    """
+    return normalizar(titulo).startswith("fe de erratas")
+
+
 @lru_cache(maxsize=512)
 def _patron(clave: str) -> re.Pattern[str]:
     """Match por palabra completa, no por substring.
@@ -35,9 +46,15 @@ class Candidato:
     nota: Nota
     puntaje: int
     motivos: list[str]
+    es_correccion: bool = False
 
     def to_dict(self) -> dict:
-        return {**self.nota.to_dict(), "puntaje": self.puntaje, "motivos": self.motivos}
+        return {
+            **self.nota.to_dict(),
+            "puntaje": self.puntaje,
+            "motivos": self.motivos,
+            "es_correccion": self.es_correccion,
+        }
 
 
 def prefiltrar(notas: list[Nota], giro: Giro) -> tuple[list[Candidato], list[Nota]]:
@@ -70,7 +87,10 @@ def prefiltrar(notas: list[Nota], giro: Giro) -> tuple[list[Candidato], list[Not
             motivos.append("palabras clave: " + ", ".join(golpes))
 
         if puntaje:
-            candidatos.append(Candidato(nota=nota, puntaje=puntaje, motivos=motivos))
+            candidatos.append(Candidato(
+                nota=nota, puntaje=puntaje, motivos=motivos,
+                es_correccion=es_correccion(nota.titulo),
+            ))
         else:
             descartadas.append(nota)
 
