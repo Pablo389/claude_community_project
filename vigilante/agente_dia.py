@@ -41,6 +41,11 @@ Método:
 4. Si algo amerita contexto externo (por ejemplo si una NOM ya venía como proyecto,
    o cuál era el valor anterior de un parámetro), puedes usar WebSearch. Máximo 3
    búsquedas, y solo para hallazgos que ya confirmaste como relevantes.
+5. Un candidato marcado `[FE DE ERRATAS]` es una corrección oficial a una publicación
+   anterior, no un asunto nuevo. Identifica qué corrige (el DOF lo nombra en el propio
+   título: "... publicada el <fecha>"). Solo tú ves el día de hoy, así que no sabes si
+   esa publicación anterior ya te pareció relevante en un reporte pasado — repórtala
+   igual, y deja explícito en `que_cambia` qué corrige.
 
 Reglas duras:
 - Cada hallazgo debe citar el `cod_nota` exacto de la publicación que lo respalda.
@@ -98,8 +103,9 @@ def _prompt(fecha: str, giro: Giro, candidatos: list[Candidato], total_notas: in
         "### Candidatos",
     ]
     for c in candidatos:
+        marca = " [FE DE ERRATAS]" if c.es_correccion else ""
         lineas.append(
-            f"- codNota {c.nota.cod_nota} | {c.nota.edicion} | {c.nota.dependencia}\n"
+            f"- codNota {c.nota.cod_nota} | {c.nota.edicion} | {c.nota.dependencia}{marca}\n"
             f"  {c.nota.titulo}\n"
             f"  (match: {'; '.join(c.motivos)})"
         )

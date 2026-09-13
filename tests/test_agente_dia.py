@@ -1,6 +1,7 @@
-"""agente_dia.py: solo se prueba el cableado determinista de EP-01
-(`fuente_incompleta` en `_meta`), no la llamada real al modelo -eso es
-justo lo que esta etapa delega a Claude.
+"""agente_dia.py: solo se prueba el cableado determinista -EP-01
+(`fuente_incompleta` en `_meta`) y EP-02 (marca `[FE DE ERRATAS]` en el
+prompt)-, no la llamada real al modelo, que es justo lo que esta etapa
+delega a Claude.
 
 `servidor_dof` se mockea para poder capturar el `sin_texto: set[int]` que
 `_opciones` construye y le pasa; `ejecutar_agente` se mockea para simular
@@ -12,11 +13,22 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+from tests.conftest import hacer_nota
 from vigilante import agente_dia
 from vigilante.config import Giro
 from vigilante.dof_api import DiarioDelDia
+from vigilante.prefiltro import Candidato
 
 REPORTE_JSON = '```json\n{"veredicto": "sin_impacto", "hallazgos": []}\n```'
+
+
+def _candidato(cod_nota=1, titulo="T", es_correccion=False, **kw) -> Candidato:
+    return Candidato(
+        nota=hacer_nota(cod_nota, titulo, **kw),
+        puntaje=5,
+        motivos=["palabras clave: x"],
+        es_correccion=es_correccion,
+    )
 
 
 def _resultado(**kw) -> SimpleNamespace:
@@ -93,3 +105,29 @@ def test_cada_corrida_usa_su_propio_set_de_sin_texto(monkeypatch):
     asyncio.run(agente_dia.analizar_dia(diario, giro, [], modelo="test-model", verboso=False))
 
     assert sets_capturados[0] is not sets_capturados[1]
+
+
+class TestPromptMarcaFeDeErratas:
+    """EP-02: la marca `[FE DE ERRATAS]` en el prompt es puramente determinista."""
+
+    def test_candidato_correccion_lleva_la_marca(self):
+        candidatos = [_candidato(1, "Fe de erratas a la NOM-137-SSA1-2008", es_correccion=True)]
+        prompt = agente_dia._prompt("28-08-2026", Giro(nombre="X", descripcion=""), candidatos, 10)
+        assert "[FE DE ERRATAS]" in prompt
+
+    def test_candidato_normal_no_lleva_la_marca(self):
+        candidatos = [_candidato(1, "Registro sanitario de dispositivo medico", es_correccion=False)]
+        prompt = agente_dia._prompt("28-08-2026", Giro(nombre="X", descripcion=""), candidatos, 10)
+        assert "[FE DE ERRATAS]" not in prompt
+
+    def test_marca_va_junto_al_candidato_correcto_no_a_todos(self):
+        candidatos = [
+            _candidato(1, "Registro sanitario de dispositivo medico", es_correccion=False),
+            _candidato(2, "Fe de erratas a la NOM-137-SSA1-2008", es_correccion=True),
+        ]
+        prompt = agente_dia._prompt("28-08-2026", Giro(nombre="X", descripcion=""), candidatos, 10)
+        assert prompt.count("[FE DE ERRATAS]") == 1
+        linea_1 = [l for l in prompt.splitlines() if "codNota 1" in l][0]
+        linea_2 = [l for l in prompt.splitlines() if "codNota 2" in l][0]
+        assert "[FE DE ERRATAS]" not in linea_1
+        assert "[FE DE ERRATAS]" in linea_2
